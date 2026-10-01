@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
+from google.api_core.exceptions import InternalServerError, ResourceExhausted, ServiceUnavailable, TooManyRequests
 
 from app import domain_checks, gemini_client, main, pipeline, storage
 from app.gemini_client import ModelUnavailable, OutputInvalid
@@ -216,6 +216,58 @@ def test_key_rotation_deletes_under_the_old_key_and_uploads_again_under_the_new_
     assert fake.requests[1].content[0].name == "files/v2"
 
 
+def _generated_keys(fake):
+    return [key for call, key, _ in fake.events if call == "generate"]
+
+
+def test_rest_429_is_too_many_requests_and_rotates_keys(fake):
+    # transport="rest" raises TooManyRequests, the parent of ResourceExhausted.
+    fake.replies["extract"] = [TooManyRequests("q"), EXTRACTED_JSON]
+    extracted = gemini_client.extract_message("hi", None, None)
+    assert extracted.extraction_failed is False
+    assert _generated_keys(fake) == ["k1", "k2"]
+    assert fake.clock.sleeps == []
+
+
+def test_500_is_retried_on_the_same_key(fake):
+    fake.replies["extract"] = [InternalServerError("oops"), EXTRACTED_JSON]
+    gemini_client.extract_message("hi", None, None)
+    assert _generated_keys(fake) == ["k1", "k1"]
+    assert fake.clock.sleeps == [1]
+
+
+def test_rotation_wraps_around_and_the_next_call_starts_on_the_first_key_again(fake):
+    fake.replies["extract"] = [TooManyRequests("q")]
+    with pytest.raises(ModelUnavailable):
+        gemini_client.extract_message("hi", None, None)
+    assert _generated_keys(fake) == ["k1", "k2"]  # each key tried once, no retry of the same key
+    assert gemini_client._key_index == 0
+
+    fake.events.clear()
+    fake.replies["extract"] = [EXTRACTED_JSON]
+    gemini_client.extract_message("hi", None, None)
+    assert _generated_keys(fake) == ["k1"]
+
+
+def test_exhausted_transient_retries_do_not_touch_the_next_key(fake):
+    fake.replies["extract"] = [ServiceUnavailable("busy")]
+    with pytest.raises(ModelUnavailable):
+        gemini_client.extract_message("hi", None, None)
+    assert _generated_keys(fake) == ["k1"] * 3
+    assert gemini_client._key_index == 0
+
+
+def test_quota_on_every_key_is_a_503_with_retry_after(fake, monkeypatch):
+    async def no_checks(urls):
+        return []
+
+    monkeypatch.setattr(domain_checks, "run_domain_checks", no_checks)
+    fake.replies["extract"] = [TooManyRequests("q")]
+    r = TestClient(main.app).post("/analyze", data={"text": "hi"})
+    assert r.status_code == 503 and r.headers["retry-after"] == "15"
+    assert "quota" not in r.text.lower()
+
+
 def test_repair_attempt_reuses_the_upload(fake):
     fake.replies["extract"] = ["not json", EXTRACTED_JSON]
     _extract()
@@ -328,6 +380,7 @@ def api(monkeypatch, tmp_path):
     monkeypatch.setattr(domain_checks, "run_domain_checks", run_checks)
     monkeypatch.setattr(main, "scan_image", no_qr_scan)
     client = TestClient(main.app)
+    client.headers["X-Owner"] = "a" * 64  # history is private to this key
     client.seen = seen
     return client
 

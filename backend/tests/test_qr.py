@@ -66,6 +66,7 @@ def api(monkeypatch, tmp_path):
     monkeypatch.setattr(gemini_client, "synthesize_report", synthesize)
     monkeypatch.setattr(domain_checks, "run_domain_checks", run_checks)
     client = TestClient(main.app)
+    client.headers["X-Owner"] = "a" * 64  # history is private to this key
     client.seen = seen
     return client
 

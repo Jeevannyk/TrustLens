@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -5,13 +6,13 @@ import re
 from urllib.parse import quote
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
-from . import storage
+from . import guards, storage
 from .documents import PDF_MIME, merge_text, prepare_document, safe_filename
-from .gemini_client import ModelUnavailable
+from .gemini_client import ModelUnavailable, model_name
 from .pipeline import analyze_message
 from .qr import merge_qr_text, scan_image
 from .schemas import TrustReport
@@ -21,6 +22,8 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_RETENTION_DAYS = 7
+_OWNER_KEY_RE = re.compile(r"[0-9a-f]{64}")
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_VIDEO_BYTES = 25 * 1024 * 1024
@@ -117,6 +120,46 @@ def _content_disposition(disposition: str, filename: str | None) -> str:
     return f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
+def retention_days() -> int:
+    """RETENTION_DAYS (default 7): how long saved analyses are kept."""
+    try:
+        return max(1, int(os.environ.get("RETENTION_DAYS", DEFAULT_RETENTION_DAYS)))
+    except ValueError:
+        return DEFAULT_RETENTION_DAYS
+
+
+def _purge_expired() -> None:
+    try:
+        storage.purge_expired(retention_days())
+    except Exception:
+        logger.exception("could not purge expired analyses")
+
+
+def _hash_owner_key(secret: str | None) -> str | None:
+    """sha256 of a well-formed X-Owner secret (64 hex characters), else None. Only the hash is
+    ever stored; the secret is never logged and never appears in a URL."""
+    if not secret or not _OWNER_KEY_RE.fullmatch(secret):
+        return None
+    return hashlib.sha256(secret.encode("ascii")).hexdigest()
+
+
+def require_owner(x_owner: str | None = Header(None)) -> str:
+    owner = _hash_owner_key(x_owner)
+    if owner is None:
+        raise HTTPException(status_code=401, detail="owner key required")
+    return owner
+
+
+def _client_ip(request: Request) -> str:
+    """The caller's address. X-Forwarded-For is only believed behind a proxy we trust
+    (TRUST_PROXY=1); otherwise any client could pick its own address."""
+    if guards.trust_proxy():
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+    return request.client.host if request.client else "unknown"
+
+
 def _stored_file(row: dict) -> tuple[bytes, str, str, str | None] | None:
     """(data, kind, mime, name) of the file saved with an analysis; screenshots from
     before file uploads existed count as images."""
@@ -134,9 +177,11 @@ app.add_middleware(
     allow_origins=["*"],  # tighten before any real deploy; fine for hackathon demo
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Retry-After"],
 )
 
 storage.init_db()
+_purge_expired()
 
 
 @app.get("/health")
@@ -146,10 +191,14 @@ async def health() -> dict:
 
 @app.post("/analyze", response_model=TrustReport)
 async def analyze(
+    request: Request,
+    response: Response,
     text: str | None = Form(None),
     link: str | None = Form(None),
     language: str = Form("en"),
+    save: str = Form("true"),
     file: UploadFile | None = File(None),
+    x_owner: str | None = Header(None),
 ) -> TrustReport:
     try:
         clean_text, clean_link = validate_input(text, link, has_image=file is not None)
@@ -161,6 +210,7 @@ async def analyze(
     model_file_bytes = stored_file_bytes = None
     qr_payloads: list[str] = []
     file_kind = file_mime = file_name = None
+    file_data: bytes | None = None
     analysis_text = clean_text
     if file:
         resolved = resolve_file_kind(file.content_type, file.filename)
@@ -175,6 +225,7 @@ async def analyze(
                 content={"detail": f"{label} is too large. Maximum size is {limit // 1024 // 1024} MB."},
             )
         file_name = safe_filename(file.filename)
+        file_data = data
         if file_kind == "image":
             image_bytes, image_mime = data, file_mime
             # The image still goes to the model as well, for logos and "scan to pay" cues.
@@ -195,35 +246,56 @@ async def analyze(
             if file_mime == PDF_MIME:
                 model_file_bytes = data  # the model reads PDFs itself, as an inline part
 
-    try:
-        report = await analyze_message(
-            text=analysis_text,
-            link=clean_link,
-            image_bytes=image_bytes,
-            image_mime=image_mime,
-            file_bytes=model_file_bytes,
-            file_mime=file_mime if model_file_bytes else None,
-            qr_payloads=qr_payloads,
-            language=language,
-        )
-    except ModelUnavailable:
-        logger.exception("analysis service unavailable")
-        return JSONResponse(
-            status_code=503,
-            content={"detail": "The analysis service is busy right now. Please try again in a moment."},
-        )
-    except Exception:
-        # Caught here (not via @app.exception_handler(Exception)) on purpose: Starlette
-        # routes that handler to ServerErrorMiddleware, which sits *outside*
-        # CORSMiddleware, so its responses never get CORS headers attached. Returning a
-        # normal JSONResponse from inside the route flows through CORSMiddleware like
-        # any other response.
-        logger.exception("analyze failed")
-        return JSONResponse(
-            status_code=500,
-            content={"detail": "Analysis failed on the server. Please try again."},
-        )
+    key = guards.cache_key(clean_text, clean_link, file_data, file_mime, language, model_name())
+    report = guards.cache.get(key)
+    if report is not None:
+        # A repeat of a recent analysis: no model call, and it does not count against the limit.
+        report = report.model_copy(deep=True)
+        response.headers["X-Cache"] = "HIT"
+    else:
+        allowed, retry_after = guards.limiter.check(_client_ip(request))
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": f"Too many analyses. Try again in {retry_after} seconds."},
+                headers={"Retry-After": str(retry_after)},
+            )
+        try:
+            report = await analyze_message(
+                text=analysis_text,
+                link=clean_link,
+                image_bytes=image_bytes,
+                image_mime=image_mime,
+                file_bytes=model_file_bytes,
+                file_mime=file_mime if model_file_bytes else None,
+                qr_payloads=qr_payloads,
+                language=language,
+            )
+        except ModelUnavailable:
+            logger.exception("analysis service unavailable")
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "The analysis service is busy right now. Please try again in a moment."},
+                headers={"Retry-After": "15"},
+            )
+        except Exception:
+            # Caught here (not via @app.exception_handler(Exception)) on purpose: Starlette
+            # routes that handler to ServerErrorMiddleware, which sits *outside*
+            # CORSMiddleware, so its responses never get CORS headers attached. Returning a
+            # normal JSONResponse from inside the route flows through CORSMiddleware like
+            # any other response.
+            logger.exception("analyze failed")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Analysis failed on the server. Please try again."},
+            )
+        ttl = guards.cache_ttl_seconds()
+        if ttl > 0 and not report.analysis_incomplete:  # a fallback report must not stick
+            guards.cache.put(key, report.model_copy(deep=True), ttl)
 
+    owner = _hash_owner_key(x_owner)
+    if owner is None or save.strip().lower() == "false":
+        return report  # nothing is stored without a valid owner key or when the user opted out
     try:
         storage.save_analysis(
             input_text=clean_text,
@@ -237,20 +309,27 @@ async def analyze(
             file_mime=file_mime,
             file_kind=file_kind,
             file_bytes=stored_file_bytes,
+            owner=owner,
         )
+        _purge_expired()
     except Exception:
         logger.exception("could not save analysis; returning it anyway")
     return report
 
 
 @app.get("/history")
-async def history(limit: int = 50) -> list[dict]:
-    return storage.list_analyses(limit=limit)
+async def history(limit: int = 50, owner: str = Depends(require_owner)) -> list[dict]:
+    return storage.list_analyses(limit=limit, owner=owner)
+
+
+@app.delete("/history")
+async def delete_history(owner: str = Depends(require_owner)) -> dict:
+    return {"deleted": storage.delete_all(owner)}
 
 
 @app.get("/history/{analysis_id}")
-async def history_item(analysis_id: int):
-    row = storage.get_analysis(analysis_id)
+async def history_item(analysis_id: int, owner: str = Depends(require_owner)):
+    row = storage.get_analysis(analysis_id, owner)
     if row is None:
         return JSONResponse(status_code=404, content={"detail": "not found"})
     stored = _stored_file(row)
@@ -269,17 +348,24 @@ async def history_item(analysis_id: int):
     }
 
 
+@app.delete("/history/{analysis_id}")
+async def delete_history_item(analysis_id: int, owner: str = Depends(require_owner)):
+    if not storage.delete_analysis(analysis_id, owner):
+        return JSONResponse(status_code=404, content={"detail": "not found"})
+    return Response(status_code=204)
+
+
 @app.get("/history/{analysis_id}/screenshot")
-async def history_screenshot(analysis_id: int):
-    row = storage.get_analysis(analysis_id)
+async def history_screenshot(analysis_id: int, owner: str = Depends(require_owner)):
+    row = storage.get_analysis(analysis_id, owner)
     if row is None or row["screenshot"] is None:
         return JSONResponse(status_code=404, content={"detail": "no screenshot"})
     return Response(content=row["screenshot"], media_type=row["screenshot_mime"] or "application/octet-stream")
 
 
 @app.get("/history/{analysis_id}/file")
-async def history_file(analysis_id: int):
-    row = storage.get_analysis(analysis_id)
+async def history_file(analysis_id: int, owner: str = Depends(require_owner)):
+    row = storage.get_analysis(analysis_id, owner)
     stored = _stored_file(row) if row else None
     if stored is None:
         return JSONResponse(status_code=404, content={"detail": "no file"})

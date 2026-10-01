@@ -14,6 +14,10 @@ const EXAMPLES = [
     text: "Congratulations! You have won Rs 25,00,000 in the Lucky Draw. To claim, send Rs 2,500 processing fee to UPI id claim.lucky@okaxis within 1 hour.",
   },
   {
+    label: "Payment receipt",
+    text: "Payment of Rs 18,500 received from Rahul via UPI. Txn ID: 40291837465. Payment successful, please ship the phone today and send me the tracking number.",
+  },
+  {
     label: "Friendly chat",
     text: "Hey, running 10 mins late. See you at 5 outside the cafe!",
   },
@@ -23,7 +27,7 @@ function looksLikeLink(value) {
   return !/\s/.test(value) && /\./.test(value);
 }
 
-export default function InputForm({ text, setText, link, setLink, file, setFile, hasInput, textareaRef, onSubmit }) {
+export default function InputForm({ text, setText, link, setLink, file, setFile, hasInput, textareaRef, onSubmit, dontSave, setDontSave }) {
   const boxRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [linkTouched, setLinkTouched] = useState(false);
@@ -90,6 +94,11 @@ export default function InputForm({ text, setText, link, setLink, file, setFile,
           aria-describedby="link-error"
         />
         <div id="link-error" className="field-error" role="alert">{linkError}</div>
+
+        <label className="check-row">
+          <input type="checkbox" checked={dontSave} onChange={(e) => setDontSave(e.target.checked)} />
+          Don't save this analysis
+        </label>
 
         <div className="composer-footer">
           <AttachmentDropzone file={file} onChange={setFile} containerRef={boxRef} onDraggingChange={setDragging} />

@@ -109,3 +109,23 @@ def test_ensure_findings_never_empty():
 def test_fallback_is_cautious():
     out = fallback_report("en", ExtractedMessage(), [])
     assert out.risk_level == "Suspicious" and out.analysis_incomplete and "careful" in out.summary
+
+
+def test_payment_problem_claim_floors_to_suspicious():
+    ex = ExtractedMessage(claims=["Payment check: no UPI transaction ID visible"])
+    level, reasons = compute_floor(ex, [])
+    assert level == "Suspicious"
+    assert reasons[0].code == "payment_check" and "no UPI transaction ID" in reasons[0].evidence
+
+
+def test_payment_check_with_no_problems_stays_safe():
+    ex = ExtractedMessage(claims=["Payment check: no problems found"])
+    assert compute_floor(ex, []) == ("Safe", [])
+
+
+def test_payment_check_flag_is_added_when_it_raises_the_report():
+    ex = ExtractedMessage(claims=["Order shipped", "payment CHECK: amount mismatch"])
+    level, reasons = compute_floor(ex, [])
+    report = apply_floor(_report("Safe"), level, reasons)
+    assert report.risk_level == "Suspicious"
+    assert [f.title for f in report.flags] == ["Payment details look wrong"]

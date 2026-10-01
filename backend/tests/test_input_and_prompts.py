@@ -59,3 +59,12 @@ def test_prompts_do_not_treat_forwarding_or_plain_notices_as_scams():
     assert "forwarding is normal" in SYNTHESIS_SYSTEM_PROMPT
     assert "official_domain_of" in SYNTHESIS_SYSTEM_PROMPT
     assert "A deadline alone is not pressure" in SYNTHESIS_SYSTEM_PROMPT
+
+
+def test_prompts_scrutinize_payment_records_only_when_present():
+    for p in PROMPTS:
+        assert "PAYMENT RECORDS" in p and "ONLY when" in p and "Payment check:" in p
+    assert 'Start extracted_text with "Payment record:"' in EXTRACTION_SYSTEM_PROMPT
+    assert "12 digits" in " ".join(EXTRACTION_SYSTEM_PROMPT.split()) and "@okaxis" in EXTRACTION_SYSTEM_PROMPT
+    assert 'starts with "Payment record:"' in " ".join(SYNTHESIS_SYSTEM_PROMPT.split())
+    assert "never proves the money arrived" in SYNTHESIS_SYSTEM_PROMPT

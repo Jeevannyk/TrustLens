@@ -1,11 +1,12 @@
 import json
 import logging
 import os
+import threading
 import time
 
 import google.generativeai as genai
 import requests
-from google.api_core.exceptions import DeadlineExceeded, ResourceExhausted, ServiceUnavailable
+from google.api_core.exceptions import DeadlineExceeded, ResourceExhausted, ServerError, ServiceUnavailable, TooManyRequests
 
 from .prompts import EXTRACTION_SYSTEM_PROMPT, SYNTHESIS_SYSTEM_PROMPT
 from .model_output import ModelReport, parse_model_json, validate_extracted, validate_report
@@ -33,14 +34,16 @@ class ModelUnavailable(Exception):
 class OutputInvalid(Exception):
     """The model replied, but not with usable JSON even after one repair attempt."""
 
-# 503/timeout: transient, worth retrying the SAME key with backoff.
-_TRANSIENT = (ServiceUnavailable, DeadlineExceeded, TimeoutError, requests.exceptions.Timeout)
+# 5xx/timeout: transient, worth retrying the SAME key with backoff.
+_TRANSIENT = (ServerError, DeadlineExceeded, TimeoutError, requests.exceptions.Timeout)
 # 429: this key's quota (per-minute or per-day) is exhausted — retrying the same key
 # won't help within a demo timeframe, so rotate to the next configured key instead.
-_QUOTA_EXCEEDED = (ResourceExhausted,)
+# With transport="rest" a 429 arrives as TooManyRequests (ResourceExhausted is its gRPC subclass).
+_QUOTA_EXCEEDED = (TooManyRequests,)
 
 _api_keys: list[str] = []
 _key_index = 0
+_key_lock = threading.Lock()
 _configured_key: str | None = None
 
 
@@ -70,18 +73,21 @@ def _configure_current_key() -> None:
         _configured_key = key
 
 
-def _rotate_key() -> bool:
-    """Advances to the next key. Returns False if we've cycled through all of them."""
+def _rotate_key() -> None:
+    """Advances to the next key, wrapping around after the last one."""
     global _key_index
     keys = _load_keys()
-    _key_index += 1
-    return _key_index < len(keys)
+    with _key_lock:
+        _key_index = (_key_index + 1) % len(keys)
+
+
+def model_name() -> str:
+    return os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 
 def _model(system_prompt: str) -> genai.GenerativeModel:
     _configure_current_key()
-    model_name = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
-    return genai.GenerativeModel(model_name=model_name, system_instruction=system_prompt)
+    return genai.GenerativeModel(model_name=model_name(), system_instruction=system_prompt)
 
 
 def is_video_mime(mime: str | None) -> bool:
@@ -177,14 +183,16 @@ class _Video:
 
 
 def _generate(system_prompt: str, content, max_transient_attempts: int = 3, video: _Video | None = None):
-    """Calls the model with bounded retries: transient errors back off on the same key,
-    quota errors rotate to the next key. Raises ModelUnavailable if nothing works.
+    """Calls the model with bounded retries: transient errors back off on the same key and
+    give up when they persist, quota errors rotate to the next key (each key is tried at
+    most once per call). Raises ModelUnavailable if nothing works.
     A video goes first in the request, uploaded under the key being tried."""
     keys = _load_keys()
     last_error: Exception | None = None
     timeout = VIDEO_REQUEST_TIMEOUT_SECONDS if video else REQUEST_TIMEOUT_SECONDS
 
     for _key_attempt in range(len(keys)):
+        quota_exhausted = False
         for attempt in range(1, max_transient_attempts + 1):
             try:
                 model = _model(system_prompt)
@@ -202,13 +210,13 @@ def _generate(system_prompt: str, content, max_transient_attempts: int = 3, vide
             except _QUOTA_EXCEEDED as exc:
                 last_error = exc
                 logger.warning("model quota exhausted for current key: %s", exc)
+                quota_exhausted = True
                 break  # stop retrying this key, rotate below
-        else:
-            continue  # transient retries exhausted without a quota error; give up entirely
+        if not quota_exhausted:
+            break  # transient retries exhausted: another key will not fix an outage
         if video:
             video.delete()  # the next key cannot use this key's upload
-        if not _rotate_key():
-            break  # no more keys left to try
+        _rotate_key()
 
     raise ModelUnavailable(str(last_error)) from last_error
 

@@ -72,33 +72,36 @@
   --info-soft: #e8f0fe;
 }
 
-/* Dark theme: neutral greys with the same accent family, not an inversion */
-[data-theme="dark"] {
-  color-scheme: dark;
+/* Dark theme applies on screen only, so printing and saving a PDF always use the light tokens */
+@media screen {
+  /* Neutral greys with the same accent family, not an inversion */
+  [data-theme="dark"] {
+    color-scheme: dark;
 
-  --bg: #131314;
-  --surface: #1e1f20;
-  --surface-2: #282a2c;
-  --border: #3c4043;
-  --border-strong: #8e918f;
-  --text: #e3e3e3;
-  --text-muted: #b4b7ba;
+    --bg: #131314;
+    --surface: #1e1f20;
+    --surface-2: #282a2c;
+    --border: #3c4043;
+    --border-strong: #8e918f;
+    --text: #e3e3e3;
+    --text-muted: #b4b7ba;
 
-  --primary: #8ab4f8;
-  --primary-hover: #aecbfa;
-  --primary-contrast: #131314;
-  --primary-soft: #28344a;
-  --focus: #8ab4f8;
+    --primary: #8ab4f8;
+    --primary-hover: #aecbfa;
+    --primary-contrast: #131314;
+    --primary-soft: #28344a;
+    --focus: #8ab4f8;
 
-  --success: #81c995;
-  --success-soft: #1e3a2b;
-  --success-solid: #81c995;
-  --warn: #fdd663;
-  --warn-soft: #3b3014;
-  --warn-solid: #e3b53a;
-  --danger: #f28b82;
-  --danger-soft: #3d1f1e;
-  --danger-solid: #f28b82;
-  --info: #8ab4f8;
-  --info-soft: #28344a;
+    --success: #81c995;
+    --success-soft: #1e3a2b;
+    --success-solid: #81c995;
+    --warn: #fdd663;
+    --warn-soft: #3b3014;
+    --warn-solid: #e3b53a;
+    --danger: #f28b82;
+    --danger-soft: #3d1f1e;
+    --danger-solid: #f28b82;
+    --info: #8ab4f8;
+    --info-soft: #28344a;
+  }
 }

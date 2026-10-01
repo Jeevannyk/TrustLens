@@ -89,4 +89,10 @@ FLAG_TITLES = {
         "kn": "ಲಿಂಕ್‌ನಲ್ಲಿ ಎಚ್ಚರಿಕೆಯ ಲಕ್ಷಣಗಳಿವೆ",
         "hi": "लिंक में चेतावनी के संकेत हैं",
     },
+    # kn/hi wording needs native-speaker review.
+    "payment_check": {
+        "en": "Payment details look wrong",
+        "kn": "ಪಾವತಿ ವಿವರಗಳು ಸರಿಯಾಗಿಲ್ಲ ಎಂದು ತೋರುತ್ತದೆ",
+        "hi": "भुगतान का विवरण सही नहीं लगता",
+    },
 }

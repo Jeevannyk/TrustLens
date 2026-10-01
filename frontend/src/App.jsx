@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import AnalysisProgress from "./components/AnalysisProgress.jsx";
 import Footer from "./components/Footer.jsx";
 import Header from "./components/Header.jsx";
+import HistoryPage from "./components/HistoryPage.jsx";
 import Icon from "./components/Icon.jsx";
 import InputForm from "./components/InputForm.jsx";
 import SubmissionSummary from "./components/SubmissionSummary.jsx";
 import Toast, { useToast } from "./components/Toast.jsx";
 import TrustReportCard from "./components/TrustReportCard.jsx";
 import useTheme from "./hooks/useTheme.js";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+import { apiFetch } from "./api.js";
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -18,6 +18,34 @@ const LANGUAGES = [
 ];
 
 const DEFAULT_LANGUAGE = "en";
+const DEFAULT_RETRY_SECONDS = 15;
+const MAX_RETRY_SECONDS = 30;
+
+// How long a busy (503) server asks us to wait, from its Retry-After header.
+function retryDelayMs(res) {
+  const seconds = Number(res.headers.get("Retry-After"));
+  const valid = Number.isFinite(seconds) && seconds > 0 ? seconds : DEFAULT_RETRY_SECONDS;
+  return Math.min(valid, MAX_RETRY_SECONDS) * 1000;
+}
+
+// Resolves after ms; rejects with an AbortError as soon as the signal aborts.
+function wait(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const id = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      window.clearTimeout(id);
+      reject(new DOMException("Aborted", "AbortError"));
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 async function readErrorMessage(res) {
   try {
@@ -36,9 +64,12 @@ export default function App() {
   const [link, setLink] = useState("");
   const [file, setFile] = useState(null);
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
+  // Kept for the whole session (App stays mounted), also across "Analyze another".
+  const [dontSave, setDontSave] = useState(false);
   const [view, setView] = useState("input");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [busyNote, setBusyNote] = useState(null);
   const [report, setReport] = useState(null);
   const [theme, toggleTheme] = useTheme();
   const [toast, showToast] = useToast();
@@ -72,6 +103,7 @@ export default function App() {
     resultsRef.current?.focus({ preventScroll: true }); // Retry: heading is already mounted
     setLoading(true);
     setError(null);
+    setBusyNote(null);
     setReport(null);
 
     const formData = new FormData();
@@ -79,13 +111,17 @@ export default function App() {
     if (link.trim()) formData.append("link", link.trim());
     if (file) formData.append("file", file);
     formData.append("language", language);
+    formData.append("save", dontSave ? "false" : "true");
 
     try {
-      const res = await fetch(`${API_URL}/analyze`, {
-        method: "POST",
-        body: formData,
-        signal: controller.signal,
-      });
+      const send = () => apiFetch("/analyze", { method: "POST", body: formData, signal: controller.signal });
+      let res = await send();
+      if (res.status === 503) {
+        // The service is busy: wait as long as it asks, then try once more with the same input.
+        setBusyNote("The service is busy, retrying...");
+        await wait(retryDelayMs(res), controller.signal);
+        res = await send();
+      }
       if (!res.ok) {
         throw new Error(await readErrorMessage(res));
       }
@@ -99,7 +135,10 @@ export default function App() {
           : err.message || "Something went wrong.",
       );
     } finally {
-      if (!controller.signal.aborted) setLoading(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+        setBusyNote(null);
+      }
     }
   }
 
@@ -109,6 +148,19 @@ export default function App() {
     setLoading(false);
     setError(null);
     setReport(null);
+    focusInputRef.current = true;
+    setView("input");
+  }
+
+  function openHistory() {
+    abortRef.current?.abort();
+    setLoading(false);
+    setError(null);
+    setReport(null);
+    setView("history");
+  }
+
+  function closeHistory() {
     focusInputRef.current = true;
     setView("input");
   }
@@ -139,10 +191,14 @@ export default function App() {
         onLanguageChange={setLanguage}
         theme={theme}
         onToggleTheme={toggleTheme}
+        onOpenHistory={openHistory}
+        historyActive={view === "history"}
       />
 
       <main id="main" className="page" tabIndex={-1}>
-        {view === "input" ? (
+        {view === "history" ? (
+          <HistoryPage onBack={closeHistory} onToast={showToast} />
+        ) : view === "input" ? (
           <div className="view home">
             <h1 className="greeting">Got a message you're unsure about?</h1>
             <p className="greeting-sub">
@@ -158,6 +214,8 @@ export default function App() {
               hasInput={hasInput}
               textareaRef={textareaRef}
               onSubmit={analyze}
+              dontSave={dontSave}
+              setDontSave={setDontSave}
             />
           </div>
         ) : (
@@ -181,7 +239,7 @@ export default function App() {
 
             <div role="status" className="sr-only">{status}</div>
 
-            {loading && <AnalysisProgress />}
+            {loading && <AnalysisProgress note={busyNote} />}
             {error && (
               <div className="error-box">
                 <Icon name="alert-triangle" size={22} />

@@ -1,3 +1,4 @@
+import hashlib
 import re
 import sqlite3
 
@@ -45,6 +46,7 @@ def api(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(domain_checks, "run_domain_checks", run_checks)
     client = TestClient(main.app)
+    client.headers["X-Owner"] = "a" * 64  # history is private to this key
     client.seen = seen
     return client
 
@@ -278,7 +280,13 @@ def test_old_screenshot_row_is_served_through_old_and_new_endpoints(monkeypatch,
     _old_db(db)
     monkeypatch.setattr(storage, "DB_PATH", db)
     storage.init_db()
+    # Old rows have no owner and cannot be reached; give this one to the test's key, as if it had been saved by it.
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE analyses SET owner = ?", (hashlib.sha256(("a" * 64).encode()).hexdigest(),))
+    conn.commit()
+    conn.close()
     client = TestClient(main.app)
+    client.headers["X-Owner"] = "a" * 64
     item = client.get("/history/1").json()
     assert item["has_screenshot"] and item["has_file"] and item["file_kind"] == "image"
     assert client.get("/history/1/screenshot").content == b"oldshot"

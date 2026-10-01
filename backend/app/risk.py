@@ -15,6 +15,8 @@ from .schemas import DomainCheckResult, ExtractedMessage, Flag, TrustReport
 
 LEVELS = {"Safe": 0, "Suspicious": 1, "Dangerous": 2}
 NEW_DOMAIN_DAYS = 30
+# The extraction prompt reports payment-proof problems as claims starting with this.
+_PAYMENT_CHECK_PREFIX = "payment check:"
 
 
 @dataclass(frozen=True)
@@ -43,8 +45,8 @@ def compute_floor(
     """Returns (minimum risk level, reasons). Rules:
     - Safe Browsing hit or a confirmed brand lookalike -> Dangerous.
     - Asking for private details, injection attempts, unreadable/failed analysis,
-      strong URL oddities, or a brand-new domain combined with credential/urgency
-      intent -> Suspicious.
+      a problem reported by the payment check, strong URL oddities, or a brand-new
+      domain combined with credential/urgency intent -> Suspicious.
     - Heuristics alone never reach Dangerous.
     has_image covers any attachment the model reads itself (screenshot, PDF or video)."""
     level = "Safe"
@@ -68,6 +70,16 @@ def compute_floor(
         if codes & STRONG or (codes and intent):
             raise_to("Suspicious", Reason("suspicious_link", check.domain, "medium"))
 
+    payment_problem = next(
+        (
+            claim
+            for claim in extracted.claims
+            if claim.lower().startswith(_PAYMENT_CHECK_PREFIX) and "no problems found" not in claim.lower()
+        ),
+        None,
+    )
+    if payment_problem:
+        raise_to("Suspicious", Reason("payment_check", payment_problem[:160], "medium"))
     if extracted.asks_for_sensitive_info:
         evidence = "; ".join(extracted.requested_items[:3]) or "asks for private details"
         raise_to("Suspicious", Reason("sensitive_request", evidence))

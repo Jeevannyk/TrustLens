@@ -1,12 +1,13 @@
 """Orchestrates one analysis: read -> deterministic checks -> verdict -> risk floors."""
 import asyncio
 import logging
+from dataclasses import asdict
 
 from . import domain_checks as domain_checks_module
 from . import gemini_client
 from .messages import SUPPORTED_LANGUAGES
 from .risk import apply_floor, compute_floor, ensure_findings, fallback_report
-from .schemas import ExtractedMessage, Flag, TrustReport
+from .schemas import ExtractedMessage, Flag, FloorReason, TrustReport
 from .urls import email_domains, extract_urls
 
 logger = logging.getLogger(__name__)
@@ -108,5 +109,9 @@ async def analyze_message(
     except asyncio.TimeoutError as exc:
         raise gemini_client.ModelUnavailable("synthesis timed out") from exc
 
+    model_level = report.risk_level
     report = apply_floor(report, floor_level, reasons)
+    report.floor_reasons = [FloorReason(**asdict(r)) for r in reasons]
+    report.floor_level = floor_level
+    report.model_risk_level = model_level
     return ensure_findings(report)

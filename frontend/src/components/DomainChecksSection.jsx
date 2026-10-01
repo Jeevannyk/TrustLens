@@ -57,6 +57,7 @@ function DomainCard({ check, index }) {
     lookalike_of: lookalikeOf,
     safe_browsing_hit: safeBrowsingHit,
     safe_browsing_threat_type: threatType,
+    safe_browsing_checked: safeBrowsingChecked,
     heuristics,
     error,
   } = check;
@@ -68,6 +69,8 @@ function DomainCard({ check, index }) {
   const worryingStatus = statuses.find((s) => WORRYING_STATUSES.includes(String(s).replace(/\s/g, "").toLowerCase()));
   const servers = Array.isArray(nameservers) ? nameservers : [];
   const codes = (Array.isArray(heuristics) ? heuristics : []).filter((c) => HEURISTIC_LABELS[c]);
+  // false: the reputation check did not run, so "no hit" proves nothing. null: an older stored report.
+  const sbNotRun = safeBrowsingChecked === false && !safeBrowsingHit;
   const hasSignal = isNew || lookalikeOf || safeBrowsingHit || codes.length > 0 || worryingStatus;
 
   const details = (
@@ -88,6 +91,7 @@ function DomainCard({ check, index }) {
       {codes.map((c) => (
         <li key={c} className="fact-warn">{HEURISTIC_LABELS[c][0]}: {HEURISTIC_LABELS[c][1]}</li>
       ))}
+      {sbNotRun && <li className="fact-muted">Reputation check (Google Safe Browsing) was not run</li>}
       {error && <li className="fact-muted">Some checks were unavailable: {error}</li>}
     </ul>
   );
@@ -102,7 +106,8 @@ function DomainCard({ check, index }) {
         {codes.map((c) => (
           <Chip key={c} tone="warn" icon="alert-triangle">{HEURISTIC_LABELS[c][0]}</Chip>
         ))}
-        {!hasSignal && !error && <Chip tone="safe" icon="check">No issues found</Chip>}
+        {sbNotRun && <Chip tone="neutral" icon="info">Google Safe Browsing not checked</Chip>}
+        {!hasSignal && !error && !sbNotRun && <Chip tone="safe" icon="check">No issues found</Chip>}
         {error && !hasSignal && <Chip tone="neutral" icon="info">Some checks unavailable</Chip>}
       </div>
       <Accordion headingLevel={4} className="accordion-flat" items={[{ id: "d", title: "Details", content: details }]} />

@@ -53,14 +53,15 @@ async def _rdap(domain: str, client: httpx.AsyncClient) -> tuple[dict, str | Non
     return {}, error
 
 
-async def _safe_browsing(urls: list[str], client: httpx.AsyncClient) -> dict[str, tuple[bool, str | None]]:
+async def _safe_browsing(urls: list[str], client: httpx.AsyncClient) -> dict[str, tuple[bool, str | None]] | None:
+    """None when the check did not run (no key, error or timeout)."""
     try:
         return await asyncio.wait_for(check_safe_browsing(urls, client), CHECK_TIMEOUT_SECONDS)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("safe browsing check failed: %r", exc)
-        return {}
+        return None
 
 
 async def run_domain_checks(urls: list[str]) -> list[DomainCheckResult]:
@@ -83,6 +84,8 @@ async def run_domain_checks(urls: list[str]) -> list[DomainCheckResult]:
         ]
         results = await asyncio.gather(*rdap_tasks, _safe_browsing(sb_urls, client))
     rdap_results, sb_results = results[:-1], results[-1]
+    sb_ran = sb_results is not None
+    sb_results = sb_results or {}
 
     checks: list[DomainCheckResult] = []
     for domain, (info, error) in zip(domains, rdap_results):
@@ -112,6 +115,7 @@ async def run_domain_checks(urls: list[str]) -> list[DomainCheckResult]:
                 official_domain_of=None if _is_ip(domain) else official_brand(ascii_d),
                 safe_browsing_hit=sb_hit,
                 safe_browsing_threat_type=sb_type,
+                safe_browsing_checked=sb_ran,
                 error=error,
             )
         )

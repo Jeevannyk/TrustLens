@@ -1,6 +1,9 @@
+import { useState } from "react";
 import Accordion from "./Accordion.jsx";
+import ActionCard from "./ActionCard.jsx";
 import ActionChecklist from "./ActionChecklist.jsx";
 import DomainChecksSection from "./DomainChecksSection.jsx";
+import ExplainPanel from "./ExplainPanel.jsx";
 import Icon from "./Icon.jsx";
 import ResultActions from "./ResultActions.jsx";
 import VerdictBanner from "./VerdictBanner.jsx";
@@ -89,19 +92,26 @@ function FoundCard({ report }) {
   );
 }
 
-export default function TrustReportCard({ report, onToast }) {
+export default function TrustReportCard({ report, onToast, analyzedAt: analyzedAtProp }) {
   const flags = asList(report.flags);
   const actions = asList(report.recommended_actions);
+  const [analyzedAt] = useState(() => analyzedAtProp || new Date());
 
   return (
     <div className="result">
+      <p className="print-only print-meta">
+        TrustLens scan report · Analyzed{" "}
+        {analyzedAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+      </p>
       <VerdictBanner riskLevel={report.risk_level} summary={report.summary}>
         <ResultActions report={report} onToast={onToast} />
       </VerdictBanner>
 
       {actions.length > 0 && <ActionChecklist actions={actions} />}
+      {report.risk_level !== "Safe" && <ActionCard report={report} onToast={onToast} />}
       {flags.length > 0 && <FlagsCard flags={flags} />}
       <FoundCard report={report} />
+      <ExplainPanel report={report} />
 
       <DomainChecksSection domainChecks={report.domain_checks} />
     </div>

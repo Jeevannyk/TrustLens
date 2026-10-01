@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ExtractedMessage(BaseModel):
@@ -51,6 +51,9 @@ class DomainCheckResult(BaseModel):
     official_domain_of: Optional[str] = None
     safe_browsing_hit: bool = False
     safe_browsing_threat_type: Optional[str] = None
+    # None: stored before this field existed. True: the Safe Browsing API answered.
+    # False: it did not run (no key) or failed, so "no hit" says nothing.
+    safe_browsing_checked: Optional[bool] = None
     error: Optional[str] = None
 
 
@@ -60,7 +63,17 @@ class Flag(BaseModel):
     evidence: str
 
 
+class FloorReason(BaseModel):
+    """One automatic check that set a minimum risk level (see risk.Reason). code is a machine
+    code such as "lookalike" or "payment_check", evidence is the fact it is based on."""
+    code: str
+    evidence: str
+    severity: str  # "high" | "medium" | "low"
+
+
 class TrustReport(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())  # model_risk_level is not a pydantic internal
+
     risk_level: str  # "Safe" | "Suspicious" | "Dangerous"
     summary: str
     flags: list[Flag] = Field(default_factory=list)
@@ -71,3 +84,7 @@ class TrustReport(BaseModel):
     language: str
     extracted: ExtractedMessage
     domain_checks: list[DomainCheckResult] = Field(default_factory=list)
+    # How the verdict was reached. Reports stored before these existed have the defaults.
+    floor_reasons: list[FloorReason] = Field(default_factory=list)
+    floor_level: Optional[str] = None
+    model_risk_level: Optional[str] = None  # what the AI said, before our checks raised it

@@ -6,11 +6,16 @@ import httpx
 SAFE_BROWSING_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
 
-async def check_safe_browsing(urls: list[str], client: httpx.AsyncClient) -> dict[str, tuple[bool, Optional[str]]]:
-    """Returns {url: (is_threat, threat_type)}. Empty dict if no API key configured or no urls."""
+async def check_safe_browsing(
+    urls: list[str], client: httpx.AsyncClient
+) -> Optional[dict[str, tuple[bool, Optional[str]]]]:
+    """Returns {url: (is_threat, threat_type)}, or None if the check did not run
+    (no API key configured, or the request failed)."""
     api_key = os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY")
-    if not api_key or not urls:
-        return {url: (False, None) for url in urls}
+    if not api_key:
+        return None
+    if not urls:
+        return {}
 
     body = {
         "client": {"clientId": "trustlens", "clientVersion": "0.1.0"},
@@ -31,5 +36,5 @@ async def check_safe_browsing(urls: list[str], client: httpx.AsyncClient) -> dic
             if threatened_url in result:
                 result[threatened_url] = (True, threat_type)
     except Exception:  # noqa: BLE001 - a failed check should not crash the whole report
-        pass
+        return None
     return result

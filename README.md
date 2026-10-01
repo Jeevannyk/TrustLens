@@ -69,8 +69,14 @@ Upload with one button, drag and drop, or paste a screenshot. One attachment per
 - **What to do:** two to four concrete steps, shown as a checklist.
 - **Domain check details:** registration age, registrar, lookalike match, Safe Browsing result and
   URL warning signs for every domain found.
+- **How we decided:** when automatic checks raised the verdict above what the AI said, the report
+  shows the AI's rating, the minimum our checks require and the evidence for each check.
+- **Help if you already acted:** for Suspicious and Dangerous results, the 1930 helpline, a link to
+  cybercrime.gov.in, a reminder to call your bank, and a complaint draft you can copy and review.
+  TrustLens prepares the draft; it does not file anything for you.
 - **Three languages:** English, Kannada and Hindi.
-- Light and dark themes, copy-to-clipboard summary, and an edit-and-recheck flow.
+- Light and dark themes, copy-to-clipboard summary, share with family (share sheet or WhatsApp),
+  print or save as PDF, a private history page, and an edit-and-recheck flow.
 
 ### Specialised checks
 
@@ -83,7 +89,7 @@ Upload with one button, drag and drop, or paste a screenshot. One attachment per
   described in plain words (payee, amount, note). A plain shop or personal UPI code is not treated
   as a warning sign on its own.
 - **Payment screenshots.** Google Pay, PhonePe, Paytm and bank app receipts, and bank credit/debit
-  SMS or emails, are inspected field by field: UPI transaction ID format, real UPI handles, details
+  SMS or email screenshots, are inspected field by field: UPI transaction ID format, real UPI handles, details
   that disagree, signs of editing and the sender of bank alerts. TrustLens always reminds the user
   that a screenshot is not proof of payment.
 - **Videos.** Judged by what the speaker or chat asks for (OTPs, remote-access apps, "digital
@@ -138,6 +144,7 @@ flowchart LR
 | Request for a password, PIN, OTP, card details, remote access or money | Suspicious |
 | Attempt to manipulate the AI (prompt injection) | Suspicious |
 | Unreadable attachment with no text, or an incomplete analysis | Suspicious |
+| A problem found by the payment check (for example no UPI transaction ID visible) | Suspicious |
 | Strong URL warning sign (look-alike characters, raw IP address, text before an `@`) | Suspicious |
 | Weak URL warning sign, or a domain under 30 days old, combined with urgency or a sensitive request | Suspicious |
 
@@ -162,6 +169,7 @@ URL heuristics alone never make a message Dangerous.
 │   │   ├── main.py            FastAPI app: /analyze, /history, upload validation
 │   │   ├── pipeline.py        Orchestrates reading, checks, verdict and risk floor
 │   │   ├── gemini_client.py   Gemini calls, retries, key rotation, video uploads
+│   │   ├── guards.py          Result cache and per-IP rate limit
 │   │   ├── prompts.py         System prompts for the reading and verdict steps
 │   │   ├── domain_checks.py   Runs the per-domain checks concurrently with timeouts
 │   │   ├── checks/            domain_age (RDAP), lookalike, heuristics, safe_browsing
@@ -172,7 +180,7 @@ URL heuristics alone never make a message Dangerous.
 │   │   ├── messages.py        Fallback texts in English, Kannada and Hindi
 │   │   ├── model_output.py    Parsing and validation of model JSON
 │   │   ├── schemas.py         Request and report models
-│   │   ├── storage.py         SQLite storage and in-place migrations
+│   │   ├── storage.py         SQLite storage, in-place migrations, per-owner history, expiry
 │   │   └── text_utils.py      Input normalisation and limits
 │   ├── tests/                 Pytest suite (Gemini and network calls are stubbed)
 │   ├── requirements.txt
@@ -180,6 +188,7 @@ URL heuristics alone never make a message Dangerous.
 └── frontend/
     ├── src/
     │   ├── App.jsx            App shell and API calls
+    │   ├── api.js, ownerKey.js  Backend calls and the browser's private history key
     │   ├── attachments.js     Client-side attachment rules (mirror the backend)
     │   ├── components/        Input form, dropzone, verdict banner, report, checklist, ...
     │   ├── hooks/useTheme.js  Light/dark theme
@@ -247,7 +256,11 @@ Backend settings live in `backend/.env`. Never commit this file (it is in `.giti
 | `GEMINI_API_KEY` | Yes, unless `GEMINI_API_KEYS` is set | Gemini API key |
 | `GEMINI_API_KEYS` | No | Comma-separated keys to rotate through when one hits its quota. Overrides `GEMINI_API_KEY` |
 | `GEMINI_MODEL` | Recommended | Gemini model name, e.g. `gemini-3.1-flash-lite` |
-| `GOOGLE_SAFE_BROWSING_API_KEY` | No | Enables Safe Browsing lookups. Without it, that check is skipped |
+| `GOOGLE_SAFE_BROWSING_API_KEY` | No | Enables Safe Browsing lookups. Without it, that check is skipped and the report says it was not checked |
+| `ANALYZE_RATE_PER_MIN` | No | Analyses allowed per client IP per minute (default `6`, `0` turns the limit off) |
+| `CACHE_TTL_SECONDS` | No | How long a finished report is reused for identical input (default `600`, `0` turns the cache off) |
+| `RETENTION_DAYS` | No | Days a saved analysis is kept before it is deleted automatically (default `7`) |
+| `TRUST_PROXY` | No | Set to `1` only behind a reverse proxy you control, so the client IP is taken from `X-Forwarded-For` (default off) |
 
 Frontend settings (optional) go in `frontend/.env.local`:
 
@@ -261,10 +274,16 @@ Frontend settings (optional) go in `frontend/.env.local`:
 |---|---|---|
 | `GET` | `/health` | Health check |
 | `POST` | `/analyze` | Analyse a message and return a Trust Report |
-| `GET` | `/history?limit=50` | Recent analyses (without attachments) |
-| `GET` | `/history/{id}` | One analysis with its full report and attachment details |
-| `GET` | `/history/{id}/file` | The stored attachment |
-| `GET` | `/history/{id}/screenshot` | The stored image (kept for older clients) |
+| `GET` | `/history?limit=50` | The caller's recent analyses (without attachments; `limit` is 1 to 100). Needs `X-Owner` |
+| `GET` | `/history/{id}` | One of the caller's analyses with its full report and attachment details. Needs `X-Owner` |
+| `GET` | `/history/{id}/file` | The stored attachment. Needs `X-Owner` |
+| `GET` | `/history/{id}/screenshot` | The stored image (kept for older clients). Needs `X-Owner` |
+| `DELETE` | `/history/{id}` | Delete one of the caller's analyses (`204`, or `404`) |
+| `DELETE` | `/history` | Delete all of the caller's analyses, returns `{"deleted": n}` |
+
+The history routes need the `X-Owner` header (see [Private history](#private-history)). Without a
+valid one they return `401 {"detail": "owner key required"}`. A row that belongs to someone else
+and a row that does not exist give the same `404`.
 
 ### `POST /analyze`
 
@@ -276,6 +295,10 @@ Frontend settings (optional) go in `frontend/.env.local`:
 | `link` | string | A URL to check |
 | `file` | file | One attachment: image, document or video |
 | `language` | string | `en` (default), `kn` or `hi` |
+| `save` | string | `false` to keep this analysis out of history (default `true`) |
+
+The result is saved to history only when a valid `X-Owner` header is sent and `save` is not `false`.
+The response is the same either way.
 
 Example:
 
@@ -321,9 +344,14 @@ Response (example, with fields trimmed):
 }
 ```
 
+Identical input (same text, link, file, language and model) within `CACHE_TTL_SECONDS` returns the
+same report without calling Gemini again, with the response header `X-Cache: HIT`. Reports from an
+incomplete analysis are never cached, and cache hits do not count against the rate limit.
+
 Error responses: `413` input too large, `415` unsupported or invalid file, `422` no input given,
-`503` the analysis service is busy, `500` unexpected server error. Error bodies never include
-internal details.
+`429` too many analyses from this IP (with `Retry-After`), `503` the analysis service is busy (with
+`Retry-After`; the web app waits and retries once), `500` unexpected server error. Error bodies
+never include internal details.
 
 ## Testing
 
@@ -359,10 +387,15 @@ npm run build
 
 TrustLens is a hackathon MVP. Before any public deployment:
 
-- **History is not private.** The `/history` endpoints have no authentication and CORS allows all
-  origins, so anyone who can reach the API can read stored analyses. Run it locally only.
-- **Everything is stored.** Every analysis (text, attachments and report) is saved in
-  `backend/trustlens.db`, with no encryption or automatic expiry.
+- **History is private to a browser, not to an account.** Each browser makes a random secret key
+  and keeps it in `localStorage`; losing it (clearing site data, another device or browser) means
+  losing access to that history. See [Private history](#private-history). This is a secret-key
+  scheme and not a login: anyone who gets the key can read that history. The `/analyze` endpoint
+  and CORS (`*`) are still open, so run the API locally or behind your own access control.
+- **Stored data is deleted after 7 days.** Analyses (text, attachments and report) are saved in
+  `backend/trustlens.db` without encryption and removed after `RETENTION_DAYS` (default 7), or
+  earlier when the user deletes them. Rows saved before private history existed have no owner:
+  they stay in the file, are not reachable through the API and are never purged automatically.
 - **Gemini reads what you submit.** Analysis needs the content, so it is sent to the Gemini API.
 - **Some fakes can't be detected.** TrustLens cannot tell whether a face or voice is real, and a
   perfectly forged payment screenshot can pass the checks. A screenshot is never proof of payment;
@@ -371,17 +404,29 @@ TrustLens is a hackathon MVP. Before any public deployment:
 - **HEIC/HEIF QR codes** are not decoded by the scanner (Gemini still sees the image).
 - **Video playback from history** has no HTTP range support, so some browsers (such as Safari) may
   not play it.
-- **Rate limits.** On the Gemini free tier, a rate-limited request can fail with a server error
-  instead of switching to the next key.
+- **Rate limits.** A key that hits its Gemini quota is skipped for the next configured key. If
+  every key is exhausted the request fails with a "busy" message and the web app retries once. The
+  result cache and per-IP limit live in memory and reset when the server restarts.
 - **Translations.** Kannada and Hindi fallback messages still need review by native speakers.
+
+### Private history
+
+- The browser creates 32 random bytes (64 hex characters) with `crypto.getRandomValues`, stores
+  them in `localStorage["trustlens_owner"]` and sends them in the `X-Owner` header. They never go in
+  a URL.
+- The server stores only `sha256(secret)` in the `owner` column and never logs the secret. Every
+  history query is filtered by that hash.
+- Without a valid `X-Owner`, `/analyze` still works but stores nothing. Users can also tick "Don't
+  save this analysis".
+- The History page lists, opens and deletes saved analyses (one by one or all at once).
 
 ## Roadmap
 
-- Private, account-free history: each browser keeps a secret key and proves ownership of its
-  history with a zero-knowledge proof, replacing the open `/history` endpoints.
+- Stronger account-free history: today a browser-held secret key (sent as a header, stored as a
+  hash) protects history. Proving ownership without sending the key, for example with a signed
+  challenge, would be a next step.
 - Anonymous community scam reports, so repeated scam numbers and UPI IDs can be counted without
   revealing who reported them.
-- Graceful handling of Gemini rate limits.
 - Wider brand-domain coverage.
 
 ## Team

@@ -11,7 +11,7 @@ const STEP_MS = 2500;
 
 // Cosmetic: stages advance on a timer and stop at the last one until the result arrives.
 // The bar is indeterminate on purpose; there is no real percentage to show.
-export default function AnalysisProgress() {
+export default function AnalysisProgress({ note }) {
   const [stage, setStage] = useState(0);
 
   useEffect(() => {
@@ -34,6 +34,7 @@ export default function AnalysisProgress() {
           );
         })}
       </ol>
+      {note && <p className="help progress-note" role="status">{note}</p>}
       <p className="help">Screenshots and PDFs can take a bit longer. Videos can take a minute or two.</p>
     </div>
   );
