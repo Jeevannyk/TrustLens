@@ -40,5 +40,5 @@ def validate_input(text: str | None, link: str | None, has_image: bool) -> tuple
     if clean_link and len(clean_link) > MAX_LINK_CHARS:
         raise InputError(413, f"Link is too long. Maximum is {MAX_LINK_CHARS:,} characters.")
     if not (clean_text or clean_link or has_image):
-        raise InputError(422, "Provide a message, a link, or a screenshot.")
+        raise InputError(422, "Provide a message, a link, or a file.")
     return clean_text, clean_link

@@ -8,7 +8,7 @@ import httpx
 
 from .checks.domain_age import get_domain_info
 from .checks.heuristics import skeleton, url_heuristics
-from .checks.lookalike import check_lookalike
+from .checks.lookalike import check_lookalike, official_brand, registrable_domain
 from .checks.safe_browsing import check_safe_browsing
 from .schemas import DomainCheckResult
 from .urls import ascii_host, host_of
@@ -78,7 +78,7 @@ async def run_domain_checks(urls: list[str]) -> list[DomainCheckResult]:
 
     async with httpx.AsyncClient() as client:
         rdap_tasks = [
-            _rdap(ascii_host(d), client) if not _is_ip(d) else asyncio.sleep(0, ({}, None))
+            _rdap(registrable_domain(ascii_host(d)), client) if not _is_ip(d) else asyncio.sleep(0, ({}, None))
             for d in domains
         ]
         results = await asyncio.gather(*rdap_tasks, _safe_browsing(sb_urls, client))
@@ -109,6 +109,7 @@ async def run_domain_checks(urls: list[str]) -> list[DomainCheckResult]:
                 heuristics=heuristics,
                 lookalike_of=brand,
                 lookalike_distance=distance,
+                official_domain_of=None if _is_ip(domain) else official_brand(ascii_d),
                 safe_browsing_hit=sb_hit,
                 safe_browsing_threat_type=sb_type,
                 error=error,

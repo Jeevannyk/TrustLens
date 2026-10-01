@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 # Domains most impersonated in Indian phishing/smishing (banks, payments, gov, courier).
@@ -54,7 +55,7 @@ _MULTI_PART_SUFFIXES = {
 }
 
 
-def _registrable_domain(host: str) -> str:
+def registrable_domain(host: str) -> str:
     """Returns eTLD+1 for host (e.g. accounts.google.com -> google.com, a.b.co.in -> b.co.in)."""
     labels = host.lower().strip().rstrip(".").split(".")
     keep = 3 if len(labels) >= 3 and ".".join(labels[-2:]) in _MULTI_PART_SUFFIXES else 2
@@ -63,8 +64,13 @@ def _registrable_domain(host: str) -> str:
 
 # Subdomain entries (e.g. gpay.google.com) are covered by their parent's registrable domain.
 _BRAND_REGISTRABLES: dict[str, str] = {
-    d: name for d, name in KNOWN_BRAND_DOMAINS.items() if _registrable_domain(d) == d
+    d: name for d, name in KNOWN_BRAND_DOMAINS.items() if registrable_domain(d) == d
 }
+
+
+def official_brand(domain: str) -> Optional[str]:
+    """Brand name when domain (or any subdomain of it) is that brand's real registrable domain."""
+    return _BRAND_REGISTRABLES.get(registrable_domain(domain))
 
 
 def check_lookalike(domain: str) -> tuple[Optional[str], Optional[int]]:
@@ -72,7 +78,12 @@ def check_lookalike(domain: str) -> tuple[Optional[str], Optional[int]]:
     registrable domains. An exact registrable match (including any subdomain of it) is the
     real domain, not a lookalike. Allowed distance is 1 for brand labels under 10 chars,
     otherwise 2, to avoid false positives on short names."""
-    registrable = _registrable_domain(domain)
+    registrable = registrable_domain(domain)
+    host = domain.lower().strip().rstrip(".")
+    for brand_domain, brand_name in _BRAND_REGISTRABLES.items():
+        # A real brand domain buried inside another domain (accounts-google.com.evil.example).
+        if registrable != brand_domain and re.search(rf"(?:^|[.\-]){re.escape(brand_domain)}[.\-]", host):
+            return brand_name, 0
     best_brand: Optional[str] = None
     best_dist: Optional[int] = None
     for brand_domain, brand_name in _BRAND_REGISTRABLES.items():

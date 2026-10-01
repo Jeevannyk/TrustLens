@@ -45,7 +45,8 @@ def compute_floor(
     - Asking for private details, injection attempts, unreadable/failed analysis,
       strong URL oddities, or a brand-new domain combined with credential/urgency
       intent -> Suspicious.
-    - Heuristics alone never reach Dangerous."""
+    - Heuristics alone never reach Dangerous.
+    has_image covers any attachment the model reads itself (screenshot, PDF or video)."""
     level = "Safe"
     reasons: list[Reason] = []
 

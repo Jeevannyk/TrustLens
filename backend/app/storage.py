@@ -3,6 +3,11 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent.parent / "trustlens.db"
 
+# Added after the first release, so they are added to existing databases in init_db.
+# Screenshots stay in screenshot/screenshot_mime (old rows and /screenshot keep working);
+# file_bytes holds uploaded documents and videos. file_name/file_kind/file_mime describe any of them.
+_FILE_COLUMNS = {"file_name": "TEXT", "file_mime": "TEXT", "file_kind": "TEXT", "file_bytes": "BLOB"}
+
 
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=5)
@@ -28,6 +33,10 @@ def init_db() -> None:
             )
             """
         )
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(analyses)")}
+        for column, declaration in _FILE_COLUMNS.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE analyses ADD COLUMN {column} {declaration}")
         conn.commit()
     finally:
         conn.close()
@@ -41,16 +50,24 @@ def save_analysis(
     language: str,
     risk_level: str,
     report_json: str,
+    file_name: str | None = None,
+    file_mime: str | None = None,
+    file_kind: str | None = None,
+    file_bytes: bytes | None = None,
 ) -> int:
     conn = _connect()
     try:
         cur = conn.execute(
             """
             INSERT INTO analyses
-                (input_text, input_link, screenshot, screenshot_mime, language, risk_level, report_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (input_text, input_link, screenshot, screenshot_mime, language, risk_level, report_json,
+                 file_name, file_mime, file_kind, file_bytes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (input_text, input_link, screenshot_bytes, screenshot_mime, language, risk_level, report_json),
+            (
+                input_text, input_link, screenshot_bytes, screenshot_mime, language, risk_level, report_json,
+                file_name, file_mime, file_kind, file_bytes,
+            ),
         )
         conn.commit()
         return cur.lastrowid
@@ -64,7 +81,10 @@ def list_analyses(limit: int = 50) -> list[dict]:
         rows = conn.execute(
             """
             SELECT id, created_at, risk_level, input_text, input_link, language,
-                   screenshot IS NOT NULL AS has_screenshot
+                   screenshot IS NOT NULL AS has_screenshot,
+                   (screenshot IS NOT NULL OR file_bytes IS NOT NULL) AS has_file,
+                   file_name,
+                   COALESCE(file_kind, CASE WHEN screenshot IS NOT NULL THEN 'image' END) AS file_kind
             FROM analyses
             ORDER BY id DESC
             LIMIT ?
