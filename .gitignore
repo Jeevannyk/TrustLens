@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+node_modules/
+dist/
+*.db
+*.db-x-*
+ppt_extract.txt
