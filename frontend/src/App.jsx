@@ -200,6 +200,9 @@ export default function App() {
           <HistoryPage onBack={closeHistory} onToast={showToast} />
         ) : view === "input" ? (
           <div className="view home">
+            <div className="hero-pill">
+              <span className="hero-dot"></span> AI-Powered Scam & Phishing Forensics
+            </div>
             <h1 className="greeting">Got a message you're unsure about?</h1>
             <p className="greeting-sub">
               Paste it, add a link, or upload a screenshot, a QR code image, a file (PDF, text, email) or a short video. We will tell you if it looks like a scam and show why.

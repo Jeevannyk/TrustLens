@@ -232,11 +232,13 @@
 .card:hover {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
 }
-  margin-bottom: var(--space-3);
-}
 
-.card-head h2 {
-  font-size: var(--fs-18);
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
 }
 
 .view > * + *,
@@ -264,18 +266,48 @@
   padding-top: var(--space-6);
 }
 
-.greeting {
-  font-size: var(--fs-32);
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 auto var(--space-4);
+  padding: 6px var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+  font-size: var(--fs-14);
   font-weight: 500;
+  color: var(--text);
+  width: max-content;
+}
+
+.hero-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+.greeting {
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-weight: 700;
   text-align: center;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--text) 0%, var(--text-muted) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .greeting-sub {
-  max-width: 48ch;
+  max-width: 52ch;
   margin: var(--space-3) auto var(--space-6);
   text-align: center;
   color: var(--text-muted);
   font-size: var(--fs-18);
+  line-height: 1.6;
 }
 
 .composer {
@@ -583,9 +615,6 @@
   border-color: var(--success-solid);
   background: var(--success-soft);
   color: var(--success);
-}
-  background: var(--success-solid);
-  color: var(--primary-contrast);
 }
 
 /* ---------- Results ---------- */
