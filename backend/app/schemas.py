@@ -15,11 +15,13 @@ class ExtractedMessage(BaseModel):
     requested_items: list[str] = Field(default_factory=list)
     asks_for_sensitive_info: bool = False
     payment_ids: list[str] = Field(default_factory=list)
-    # Screenshots: all readable text, and whether anything useful could be read.
+    # Screenshots/PDFs: all readable text, and whether anything useful could be read.
     extracted_text: Optional[str] = None
     image_readable: Optional[bool] = None
     # Set by our code (not the model) when the extraction step could not be completed.
     extraction_failed: bool = False
+    # Set by our code (not the model): texts of the QR codes our scanner decoded from the image.
+    qr_decoded: list[str] = Field(default_factory=list)
 
     @field_validator("urgency_signals", "links", "claims", "requested_items", "payment_ids", mode="before")
     @classmethod
@@ -45,6 +47,8 @@ class DomainCheckResult(BaseModel):
     heuristics: list[str] = Field(default_factory=list)
     lookalike_of: Optional[str] = None
     lookalike_distance: Optional[int] = None
+    # Set when the domain is the real, official domain (or a subdomain) of a known brand.
+    official_domain_of: Optional[str] = None
     safe_browsing_hit: bool = False
     safe_browsing_threat_type: Optional[str] = None
     error: Optional[str] = None

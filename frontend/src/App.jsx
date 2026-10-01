@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import TrustReportCard from "./components/TrustReportCard.jsx";
-import DomainChecksSection from "./components/DomainChecksSection.jsx";
-import ImageDropzone from "./components/ImageDropzone.jsx";
+import AnalysisProgress from "./components/AnalysisProgress.jsx";
+import Footer from "./components/Footer.jsx";
+import Header from "./components/Header.jsx";
+import Icon from "./components/Icon.jsx";
+import InputForm from "./components/InputForm.jsx";
 import SubmissionSummary from "./components/SubmissionSummary.jsx";
+import Toast, { useToast } from "./components/Toast.jsx";
+import TrustReportCard from "./components/TrustReportCard.jsx";
+import useTheme from "./hooks/useTheme.js";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
@@ -18,7 +23,7 @@ async function readErrorMessage(res) {
   try {
     const body = await res.json();
     if (typeof body?.detail === "string" && body.detail) return body.detail;
-    if (Array.isArray(body?.detail)) return "Invalid input. Check your message, link and image.";
+    if (Array.isArray(body?.detail)) return "Invalid input. Check your message, link and attachment.";
   } catch {
     // Non-JSON body; fall through to the generic message.
   }
@@ -35,6 +40,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [report, setReport] = useState(null);
+  const [theme, toggleTheme] = useTheme();
+  const [toast, showToast] = useToast();
   const abortRef = useRef(null);
   const resultsRef = useRef(null);
   const textareaRef = useRef(null);
@@ -82,7 +89,8 @@ export default function App() {
       if (!res.ok) {
         throw new Error(await readErrorMessage(res));
       }
-      setReport(await res.json());
+      const data = await res.json();
+      setReport(data);
     } catch (err) {
       if (controller.signal.aborted) return;
       setError(
@@ -93,11 +101,6 @@ export default function App() {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }
-
-  function handleSubmit(e) {
-    e.preventDefault();
-    if (hasInput) analyze();
   }
 
   // Edit: back to the form with all values kept.
@@ -128,103 +131,75 @@ export default function App() {
         : "";
 
   return (
-    <div className="page">
-      <header className="header">
-        <h1>TrustLens</h1>
-        <p>Scam detection where every flag comes with proof.</p>
-      </header>
+    <>
+      <a className="skip-link" href="#main">Skip to content</a>
+      <Header
+        languages={LANGUAGES}
+        language={language}
+        onLanguageChange={setLanguage}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
 
-      {view === "input" ? (
-        <form className="analyze-form view" onSubmit={handleSubmit}>
-          <label>
-            Message text
-            <textarea
-              ref={textareaRef}
-              rows={5}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Paste the suspicious message here..."
+      <main id="main" className="page" tabIndex={-1}>
+        {view === "input" ? (
+          <div className="view home">
+            <h1 className="greeting">Got a message you're unsure about?</h1>
+            <p className="greeting-sub">
+              Paste it, add a link, or upload a screenshot, a QR code image, a file (PDF, text, email) or a short video. We will tell you if it looks like a scam and show why.
+            </p>
+            <InputForm
+              text={text}
+              setText={setText}
+              link={link}
+              setLink={setLink}
+              file={file}
+              setFile={setFile}
+              hasInput={hasInput}
+              textareaRef={textareaRef}
+              onSubmit={analyze}
             />
-          </label>
-
-          <label>
-            Link (optional)
-            <input
-              type="text"
-              value={link}
-              onChange={(e) => setLink(e.target.value)}
-              placeholder="https://..."
-            />
-          </label>
-
-          <ImageDropzone file={file} onChange={setFile} />
-
-          <label>
-            Language
-            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <button type="submit" disabled={!hasInput}>
-            Check for scam
-          </button>
-        </form>
-      ) : (
-        <div className="view">
-          <SubmissionSummary
-            text={text}
-            link={link}
-            file={file}
-            languageLabel={LANGUAGES.find((l) => l.code === language)?.label}
-            onEdit={edit}
-          />
-          <section className="results" aria-labelledby="results-heading">
+          </div>
+        ) : (
+          <div className="view results">
             <div className="results-bar">
-              <h2 id="results-heading" ref={resultsRef} tabIndex={-1}>
-                {loading ? "Analyzing..." : error ? "Analysis failed" : "Results"}
-              </h2>
-              <button type="button" className="btn-secondary" onClick={startOver}>
-                &larr; Analyze another
+              <h1 id="results-heading" ref={resultsRef} tabIndex={-1}>
+                {loading ? "Analyzing..." : error ? "Analysis failed" : "Your result"}
+              </h1>
+              <button type="button" className="btn btn-secondary" onClick={startOver}>
+                Analyze another
               </button>
             </div>
 
+            <SubmissionSummary
+              text={text}
+              link={link}
+              file={file}
+              languageLabel={LANGUAGES.find((l) => l.code === language)?.label}
+              onEdit={edit}
+            />
+
             <div role="status" className="sr-only">{status}</div>
 
-            {loading && <ResultsSkeleton />}
+            {loading && <AnalysisProgress />}
             {error && (
               <div className="error-box">
-                <p>{error}</p>
-                <button type="button" className="btn-secondary" onClick={analyze}>
-                  Retry
-                </button>
+                <Icon name="alert-triangle" size={22} />
+                <div>
+                  <p>{error}</p>
+                  <button type="button" className="btn btn-secondary" onClick={analyze}>
+                    Retry
+                  </button>
+                </div>
               </div>
             )}
-            {report && (
-              <>
-                <TrustReportCard report={report} />
-                <DomainChecksSection domainChecks={report.domain_checks} />
-              </>
-            )}
-          </section>
-        </div>
-      )}
-    </div>
-  );
-}
+            {report && <TrustReportCard report={report} onToast={showToast} />}
+          </div>
+        )}
+      </main>
 
-function ResultsSkeleton() {
-  return (
-    <div className="report-card skeleton" aria-hidden="true">
-      <div className="skeleton-line skeleton-badge" />
-      <div className="skeleton-line" />
-      <div className="skeleton-line" />
-      <div className="skeleton-line skeleton-short" />
-      <div className="skeleton-line" />
-    </div>
+      <Footer />
+      <Toast toast={toast} />
+    </>
   );
 }

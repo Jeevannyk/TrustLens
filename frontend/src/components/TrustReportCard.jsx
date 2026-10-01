@@ -1,22 +1,51 @@
-const RISK_STYLES = {
-  Safe: { className: "risk-safe", label: "Safe" },
-  Suspicious: { className: "risk-suspicious", label: "Suspicious" },
-  Dangerous: { className: "risk-dangerous", label: "Dangerous" },
+import Accordion from "./Accordion.jsx";
+import ActionChecklist from "./ActionChecklist.jsx";
+import DomainChecksSection from "./DomainChecksSection.jsx";
+import Icon from "./Icon.jsx";
+import ResultActions from "./ResultActions.jsx";
+import VerdictBanner from "./VerdictBanner.jsx";
+
+const SEVERITY = {
+  high: { tone: "danger", label: "High", icon: "shield-alert" },
+  medium: { tone: "warn", label: "Medium", icon: "alert-triangle" },
+  low: { tone: "info", label: "Low", icon: "info" },
 };
 
-const SEVERITY_ICON = {
-  high: "🔴",
-  medium: "🟠",
-  low: "🟡",
-};
+const asList = (v) => (Array.isArray(v) ? v : []);
 
-export default function TrustReportCard({ report }) {
-  const risk = RISK_STYLES[report.risk_level] || { className: "risk-suspicious", label: report.risk_level || "Unknown" };
-  const flags = report.flags || [];
-  const actions = report.recommended_actions || [];
+function FlagsCard({ flags }) {
+  const items = flags.map((flag, i) => {
+    const sev = SEVERITY[flag?.severity] || SEVERITY.medium;
+    return {
+      id: i,
+      defaultOpen: i === 0,
+      title: flag?.title || "Untitled flag",
+      meta: (
+        <span className={`chip-status chip-${sev.tone}`}>
+          <Icon name={sev.icon} size={14} /> {sev.label}
+        </span>
+      ),
+      content: flag?.evidence ? (
+        <blockquote className="evidence-quote">{flag.evidence}</blockquote>
+      ) : (
+        <p className="help">No more detail for this warning.</p>
+      ),
+    };
+  });
+  return (
+    <section className="card" aria-labelledby="flags-title">
+      <div className="card-head">
+        <h2 id="flags-title">Evidence</h2>
+        <span className="help">{flags.length} {flags.length === 1 ? "warning" : "warnings"}</span>
+      </div>
+      <Accordion items={items} headingLevel={3} />
+    </section>
+  );
+}
+
+function FoundCard({ report }) {
   const extracted = report.extracted;
-  const findings = Array.isArray(report.findings) ? report.findings : [];
-  const asList = (v) => (Array.isArray(v) ? v : []);
+  const findings = asList(report.findings);
   const requested = asList(extracted?.requested_items);
   const claims = asList(extracted?.claims);
   const urgency = asList(extracted?.urgency_signals);
@@ -26,74 +55,55 @@ export default function TrustReportCard({ report }) {
     claims.length > 0 ||
     urgency.length > 0 ||
     Boolean(extracted?.claimed_brand || extracted?.sender || extracted?.injection_attempt);
+  if (!hasFound) return null;
 
   return (
-    <div className="report-card">
-      <div className={`risk-badge ${risk.className}`}>{risk.label}</div>
-      <p className="summary">{report.summary || "No summary returned."}</p>
+    <section className="card" aria-labelledby="found-title">
+      <div className="card-head"><h2 id="found-title">What we found</h2></div>
+      <ul className="facts">
+        {findings.map((finding, i) => (
+          <li key={`f${i}`}>{finding}</li>
+        ))}
+        {extracted?.claimed_brand && <li>Claims to be from: <strong>{extracted.claimed_brand}</strong></li>}
+        {extracted?.sender && <li>Sender: {extracted.sender}</li>}
+        {requested.length > 0 && <li>Asks you to: {requested.join("; ")}</li>}
+        {claims.length > 0 && (
+          <li>
+            Claims made:
+            <ul>
+              {claims.map((claim, i) => (
+                <li key={i}>{claim}</li>
+              ))}
+            </ul>
+          </li>
+        )}
+        {urgency.length > 0 && <li className="fact-warn">Urgency pressure: {urgency.join(", ")}</li>}
+        {extracted?.injection_attempt && (
+          <li className="fact-danger">
+            Tried to manipulate this check
+            {extracted.injection_evidence && `: "${extracted.injection_evidence}"`}
+          </li>
+        )}
+      </ul>
+    </section>
+  );
+}
 
-      {flags.length > 0 && (
-        <div className="flags">
-          <h3>Flags</h3>
-          <ul>
-            {flags.map((flag, i) => (
-              <li key={i} className="flag-item">
-                <span className="flag-icon">{SEVERITY_ICON[flag?.severity] || "⚪"}</span>
-                <div>
-                  <strong>{flag?.title || "Untitled flag"}</strong>
-                  {flag?.evidence && <p>{flag.evidence}</p>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+export default function TrustReportCard({ report, onToast }) {
+  const flags = asList(report.flags);
+  const actions = asList(report.recommended_actions);
 
-      {actions.length > 0 && (
-        <div className="actions">
-          <h3>What to do</h3>
-          <ul>
-            {actions.map((action, i) => (
-              <li key={i}>{action}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+  return (
+    <div className="result">
+      <VerdictBanner riskLevel={report.risk_level} summary={report.summary}>
+        <ResultActions report={report} onToast={onToast} />
+      </VerdictBanner>
 
-      {hasFound && (
-        <div className="extracted">
-          <h3>What we found</h3>
-          <ul className="extracted-facts">
-            {findings.map((finding, i) => (
-              <li key={`f${i}`}>{finding}</li>
-            ))}
-            {extracted?.claimed_brand && (
-              <li>Claims to be from: <strong>{extracted.claimed_brand}</strong></li>
-            )}
-            {extracted?.sender && <li>Sender: {extracted.sender}</li>}
-            {requested.length > 0 && <li>Asks you to: {requested.join("; ")}</li>}
-            {claims.length > 0 && (
-              <li>
-                Claims made:
-                <ul>
-                  {claims.map((claim, i) => (
-                    <li key={i}>{claim}</li>
-                  ))}
-                </ul>
-              </li>
-            )}
-            {urgency.length > 0 && (
-              <li className="fact-warn">Urgency pressure: {urgency.join(", ")}</li>
-            )}
-            {extracted?.injection_attempt && (
-              <li className="fact-danger">
-                Tried to manipulate this check
-                {extracted.injection_evidence && `: "${extracted.injection_evidence}"`}
-              </li>
-            )}
-          </ul>
-        </div>
-      )}
+      {actions.length > 0 && <ActionChecklist actions={actions} />}
+      {flags.length > 0 && <FlagsCard flags={flags} />}
+      <FoundCard report={report} />
+
+      <DomainChecksSection domainChecks={report.domain_checks} />
     </div>
   );
 }

@@ -93,6 +93,21 @@ def test_unreadable_image_not_safe(monkeypatch):
     assert "couldn't read" in report.summary
 
 
+def test_unreadable_pdf_not_safe(monkeypatch):
+    _patch(monkeypatch, extracted=ExtractedMessage(image_readable=False))
+    report = _run(text=None, file_bytes=b"%PDF-1.4", file_mime="application/pdf")
+    assert report.risk_level == "Suspicious"
+    assert "couldn't read" in report.summary
+
+
+def test_pdf_is_passed_to_the_model_inline(monkeypatch):
+    seen = []
+    _patch(monkeypatch)
+    monkeypatch.setattr(gemini_client, "extract_message", lambda *a: seen.append(a) or ExtractedMessage())
+    _run(text="x", file_bytes=b"%PDF-1.4", file_mime="application/pdf")
+    assert seen == [("x", b"%PDF-1.4", "application/pdf")]
+
+
 def test_unknown_language_defaults_to_english(monkeypatch):
     _patch(monkeypatch)
     assert _run(language="xx").language == "en"
@@ -157,3 +172,27 @@ def test_failing_checks_do_not_leak_exception_text(monkeypatch):
     (result,) = asyncio.run(domain_checks.run_domain_checks(["example.com"]))
     assert "secret" not in (result.error or "")
     assert result.safe_browsing_hit is False
+
+
+def test_sender_email_domain_is_checked(monkeypatch):
+    ex = ExtractedMessage(sender="PayPal <service@paypa1.com>")
+    run_checks = _patch(monkeypatch, extracted=ex)
+    _run(text="hello")
+    assert run_checks.urls == ["paypa1.com"]
+
+
+def test_rdap_uses_registrable_domain_for_subdomains(monkeypatch):
+    seen = []
+
+    async def fake_info(domain, client):
+        seen.append(domain)
+        return {"age_days": 9940}, None
+
+    async def fake_sb(urls, client):
+        return {}
+
+    monkeypatch.setattr(domain_checks, "get_domain_info", fake_info)
+    monkeypatch.setattr(domain_checks, "check_safe_browsing", fake_sb)
+    [check] = asyncio.run(domain_checks.run_domain_checks(["updates.paypal.com"]))
+    assert seen == ["paypal.com"]
+    assert check.domain == "updates.paypal.com" and check.official_domain_of == "PayPal" and check.error is None

@@ -61,3 +61,11 @@ def test_only_some_heuristics_are_strong():
 
 def test_skeleton_maps_cyrillic():
     assert skeleton("gооgle.com") == "google.com"
+
+
+def test_email_domains_for_sender_checks():
+    from app.urls import email_domains
+
+    assert email_domains("Notification via PayPal <service@updates.paypal.com>") == ["updates.paypal.com"]
+    assert email_domains("a@b.com, c@D.in") == ["b.com", "d.in"]
+    assert email_domains(None) == [] and email_domains("no address here") == []

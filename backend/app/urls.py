@@ -22,6 +22,7 @@ _URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>\"'`]+")
 _BARE_RE = re.compile(
     r"(?i)(?<![\w@./:\-])(?:[^\W_][\w\-]*\.)+(?:" + "|".join(_TLDS) + r")(?![\w\-])(?::\d+)?(?:/[^\s<>\"'`]*)?"
 )
+_EMAIL_DOMAIN_RE = re.compile(r"[\w.+\-]+@((?:[^\W_][\w\-]*\.)+[^\W\d_]{2,})")
 _TRAILING = ".,;:!?)]}>'\""
 _MAX_URLS = 25
 
@@ -58,6 +59,14 @@ def extract_urls(text: str | None) -> list[str]:
             seen.add(key)
             result.append(url)
     return result[:_MAX_URLS]
+
+
+def email_domains(text: str | None) -> list[str]:
+    """Domains of any email addresses in text (extract_urls deliberately skips these)."""
+    if not text:
+        return []
+    cleaned = normalize_text(text, for_matching=True)
+    return list(dict.fromkeys(m.group(1).lower() for m in _EMAIL_DOMAIN_RE.finditer(cleaned)))
 
 
 def split_url(url: str):

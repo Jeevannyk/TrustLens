@@ -46,9 +46,10 @@ FLOOR_SUMMARY = {
 }
 
 UNREADABLE_SUMMARY = {
-    "en": "We couldn't read anything useful in this image, so we can't say it's safe. Try a clearer screenshot, or paste the text.",
-    "kn": "ಈ ಚಿತ್ರದಲ್ಲಿ ಉಪಯುಕ್ತವಾದದ್ದನ್ನು ಓದಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ, ಆದ್ದರಿಂದ ಇದು ಸುರಕ್ಷಿತ ಎಂದು ಹೇಳಲು ಸಾಧ್ಯವಿಲ್ಲ. ಸ್ಪಷ್ಟವಾದ ಸ್ಕ್ರೀನ್‌ಶಾಟ್ ಪ್ರಯತ್ನಿಸಿ ಅಥವಾ ಪಠ್ಯವನ್ನು ಅಂಟಿಸಿ.",
-    "hi": "हम इस तस्वीर में कुछ काम का नहीं पढ़ सके, इसलिए इसे सुरक्षित नहीं कह सकते। साफ़ स्क्रीनशॉट आज़माएँ, या टेक्स्ट पेस्ट करें।",
+    "en": "We couldn't read anything useful in this file, image or video, so we can't say it's safe. Try a clearer screenshot, file or video, or paste the text.",
+    # kn/hi video wording below needs native-speaker review.
+    "kn": "ಈ ಫೈಲ್, ಚಿತ್ರ ಅಥವಾ ವೀಡಿಯೊದಲ್ಲಿ ಉಪಯುಕ್ತವಾದದ್ದನ್ನು ಓದಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ, ಆದ್ದರಿಂದ ಇದು ಸುರಕ್ಷಿತ ಎಂದು ಹೇಳಲು ಸಾಧ್ಯವಿಲ್ಲ. ಸ್ಪಷ್ಟವಾದ ಸ್ಕ್ರೀನ್‌ಶಾಟ್, ಫೈಲ್ ಅಥವಾ ವೀಡಿಯೊ ಪ್ರಯತ್ನಿಸಿ, ಅಥವಾ ಪಠ್ಯವನ್ನು ಅಂಟಿಸಿ.",
+    "hi": "हम इस फ़ाइल, तस्वीर या वीडियो में कुछ काम का नहीं पढ़ सके, इसलिए इसे सुरक्षित नहीं कह सकते। साफ़ स्क्रीनशॉट, फ़ाइल या वीडियो आज़माएँ, या टेक्स्ट पेस्ट करें।",
 }
 
 SAFE_FINDING = {

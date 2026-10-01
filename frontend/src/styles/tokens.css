@@ -1,0 +1,104 @@
+/* Design tokens. This is the only file that contains raw colour values. */
+
+:root {
+  /* Spacing (4/8 scale) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* Radius: small for controls, larger for the input card and panels */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+
+  /* Type scale: 12 / 14 / 16 / 18 / 24 / 32 */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Kannada", "Noto Sans Devanagari", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --fs-12: 0.75rem;
+  --fs-14: 0.875rem;
+  --fs-16: 1rem;
+  --fs-18: 1.125rem;
+  --fs-24: 1.5rem;
+  --fs-32: 2rem;
+
+  /* Z-index scale */
+  --z-header: 100;
+  --z-toast: 200;
+  --z-skip: 300;
+
+  /* Motion */
+  --dur: 150ms;
+  --dur-view: 200ms;
+  --ease: ease-out;
+
+  --content-width: 760px;
+  --reading-width: 68ch;
+}
+
+/* Light theme */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f8f9fa;
+  --surface: #ffffff;
+  --surface-2: #f1f3f4;
+  --border: #dadce0;
+  --border-strong: #80868b;
+  --text: #1f1f1f;
+  --text-muted: #5f6368;
+
+  --primary: #1a5fb4;
+  --primary-hover: #154c91;
+  --primary-contrast: #ffffff;
+  --primary-soft: #e8f0fe;
+  --focus: #1a5fb4;
+
+  --success: #137333;
+  --success-soft: #e6f4ea;
+  --success-solid: #188038;
+  --warn: #7a4a00;
+  --warn-soft: #fef7e0;
+  --warn-solid: #a85f00;
+  --danger: #b3261e;
+  --danger-soft: #fce8e6;
+  --danger-solid: #d93025;
+  --info: #1a5fb4;
+  --info-soft: #e8f0fe;
+}
+
+/* Dark theme: neutral greys with the same accent family, not an inversion */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #131314;
+  --surface: #1e1f20;
+  --surface-2: #282a2c;
+  --border: #3c4043;
+  --border-strong: #8e918f;
+  --text: #e3e3e3;
+  --text-muted: #b4b7ba;
+
+  --primary: #8ab4f8;
+  --primary-hover: #aecbfa;
+  --primary-contrast: #131314;
+  --primary-soft: #28344a;
+  --focus: #8ab4f8;
+
+  --success: #81c995;
+  --success-soft: #1e3a2b;
+  --success-solid: #81c995;
+  --warn: #fdd663;
+  --warn-soft: #3b3014;
+  --warn-solid: #e3b53a;
+  --danger: #f28b82;
+  --danger-soft: #3d1f1e;
+  --danger-solid: #f28b82;
+  --info: #8ab4f8;
+  --info-soft: #28344a;
+}
