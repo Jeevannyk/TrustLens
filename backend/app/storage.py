@@ -5,7 +5,7 @@ DB_PATH = Path(__file__).resolve().parent.parent / "trustlens.db"
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
 
