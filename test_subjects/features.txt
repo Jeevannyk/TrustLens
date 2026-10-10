@@ -1,0 +1,29 @@
+IMAGES
+PNG
+JPEG,
+WebP,
+HEIC,
+HEIF
+
+
+FILES
+PDF,
+TXT,
+EML
+MD file.
+
+
+VIDEOS
+MP4,
+MOV,
+WebM
+3GP
+
+File upload
+QR scanner support
+
+Video upload
+Report generation
+
+Saving to db
+multilanguage support
